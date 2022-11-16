@@ -1,0 +1,7 @@
+*.dot
+*.ll
+*.c
+*.cl
+*.ast
+build
+.vscode

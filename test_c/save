@@ -1,0 +1,12 @@
+#!/bin/bash
+
+file=$1
+destination_dir=../saved_tests
+
+hash=$(md5sum "${file}"|cut -d' ' -f1)
+
+ext=${file##*.}
+
+cp -v "$file" "${destination_dir}/${hash:0:6}.${ext}"
+
+echo ";${file}" >> "${destination_dir}/${hash:0:6}.${ext}"

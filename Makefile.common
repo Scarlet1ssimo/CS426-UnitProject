@@ -1,0 +1,99 @@
+MPDIR   = $(LEVEL)
+CS426 = /class/cs426
+LLVM = /home/scarlet/CS426/llvm-14.0.0.src/build
+OPT = $(LLVM)/bin/opt -S
+AS  = $(LLVM)/bin/llvm-as
+LLC = $(LLVM)/bin/llc
+DIS = $(LLVM)/bin/llvm-dis
+
+SRCS    := $(wildcard *.cl)
+
+LEXER   = $(MPDIR)/reference-binaries/lexer
+PARSER  = $(MPDIR)/reference-binaries/parser
+SEMANT  = $(MPDIR)/reference-binaries/semant
+COOLRT  = $(MPDIR)/reference-binaries/coolrt.o
+CGEN    = $(MPDIR)/reference-binaries/cgen-2
+
+debug = true
+
+ifeq ($(debug),true)
+    EXTRAFLAGS = -DDEBUG
+    CGENOPTS = -c
+else
+    EXTRAFLAGS =
+    CGENOPTS =
+endif
+
+OPTFLAGS = -load-pass-plugin=$(UNIT_PORJECT) -passes="unit-licm" 
+OPTREFFLAGS = -passes="licm"
+# OPT0FLAGS = -passes="function(mem2reg,instcombine,simplifycfg,adce),inline,globaldce"
+OPT0FLAGS = -passes="mem2reg"
+# OPTREFFLAGS = -passes="function(mem2reg,instcombine,simplifycfg,adce),inline,globaldce,function(sroa,early-cse,unit-sccp,jump-threading,correlated-propagation,simplifycfg,instcombine,simplifycfg,reassociate,unit-licm,adce,simplifycfg,instcombine),globaldce"
+
+
+CPPFLAGS = -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS $(EXTRAFLAGS) \
+           -I. -I$(MPDIR)/cool-support/include
+
+LDLIBS =
+
+CXXFLAGS = -g -std=c++11 -Wall -Wno-deprecated -Wno-unused -fpermissive -Wno-write-strings
+CXX = g++
+CC = clang
+UNIT_PORJECT = $(MPDIR)/build/libUnitProject.so
+
+$(UNIT_PORJECT) ::
+	make -C ../build
+project : $(UNIT_PORJECT)
+
+.PRECIOUS: %.ast %.opt.ll %.ref.ll %.ll %.exe %.0.ll
+
+default: all
+
+all: $(SRCS:%.cl=%.out)
+
+verify: $(SRCS:%.cl=%.verify)
+
+%.ast: %.cl
+	$(LEXER) $< | $(PARSER) | $(SEMANT) > $@
+
+%.ll: %.ast $(CGEN)
+	$(CGEN) $(CGENOPTS) < $< > $@
+
+%.0.ll: %.ll
+	$(OPT) $(OPT0FLAGS) $< -o $*.0.ll
+
+%.bc: %.ll
+	$(AS) $< -o $@
+
+%.s: %.bc
+	$(LLC) --filetype=asm $< -o $@
+
+%.exe: %.s $(COOLRT)
+	$(CC) -g $+ -o $@
+
+%.verify: %.bc
+	$(OPT) -verify $< | $(DIS) -o $@
+
+%-opt.bc: %.bc
+	$(OPT) -O3 $< -f -o $*-opt.bc
+
+%.out: %.exe
+	./$< > $@ || true
+
+clean:
+	rm -f core *.exe *.bc *.opt.ll *.out *.ast *.s *.o *.verify *.ref.ll *.0.ll
+	$(CLEAN_LOCAL) *.dot
+
+%.test: %.opt.ll %.ref.ll
+
+%.showref: %.ref.ll %.ll
+	diff $+ --color
+
+%.opt.ll: %.ll $(UNIT_PORJECT)
+	$(OPT) $(OPTFLAGS) $< -o $*.opt.ll | ./save $*.ll
+
+%.ref.ll: %.ll
+	$(OPT) $(OPTREFFLAGS) $< -o $*.ref.ll
+
+%.dot: %.ll
+	$(OPT) licm.ll -dot-dom -dot-cfg

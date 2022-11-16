@@ -1,0 +1,1 @@
+/home/scarlet/CS426/llvm-14.0.0.src/build/bin/opt -load-pass-plugin=libUnitProject.so -passes="unit-licm,unit-sccp" test/qwq.ll -o test/qwq_opt.ll
