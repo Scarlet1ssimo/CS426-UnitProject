@@ -1,0 +1,4 @@
+The files almabench.c, fannkuch.c, ffbench.c, huffbench.c, lpbench.c, n-body.c,
+nsieve-bits.c, partialsums.c, PR491.c, puzzle.c, recursive.c, spectral-norm.c,
+and whetstone.c are from the LLVM Test Suite and thus licensed under the Apache
+License v2.0 with LLVM Exceptions.
