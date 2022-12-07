@@ -24,12 +24,6 @@ else
     CGENOPTS =
 endif
 
-OPTFLAGS = -load-pass-plugin=$(UNIT_PORJECT) -passes="unit-licm" 
-OPTREFFLAGS = -passes="licm"
-# OPT0FLAGS = -passes="function(mem2reg,instcombine,simplifycfg,adce),inline,globaldce"
-OPT0FLAGS = -passes="mem2reg"
-# OPTREFFLAGS = -passes="function(mem2reg,instcombine,simplifycfg,adce),inline,globaldce,function(sroa,early-cse,unit-sccp,jump-threading,correlated-propagation,simplifycfg,instcombine,simplifycfg,reassociate,unit-licm,adce,simplifycfg,instcombine),globaldce"
-
 
 CPPFLAGS = -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS $(EXTRAFLAGS) \
            -I. -I$(MPDIR)/cool-support/include
@@ -81,8 +75,8 @@ verify: $(SRCS:%.cl=%.verify)
 	./$< > $@ || true
 
 clean:
-	rm -f core *.exe *.bc *.opt.ll *.out *.ast *.s *.o *.verify *.ref.ll *.0.ll
-	$(CLEAN_LOCAL) *.dot
+	rm -f core *.exe *.bc *.opt.ll *.out *.ast *.s *.o *.verify *.ref.ll *.0.ll *.dot .*.dot
+	$(CLEAN_LOCAL)
 
 %.test: %.opt.ll %.ref.ll
 
@@ -96,4 +90,4 @@ clean:
 	$(OPT) $(OPTREFFLAGS) $< -o $*.ref.ll
 
 %.dot: %.ll
-	$(OPT) licm.ll -dot-dom -dot-cfg
+	$(OPT) $*.ll -dot-dom -dot-cfg
