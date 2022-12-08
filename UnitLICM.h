@@ -1,8 +1,10 @@
 #ifndef INCLUDE_UNIT_LICM_H
 #define INCLUDE_UNIT_LICM_H
 #include "llvm/IR/PassManager.h"
+#include "UnitLoopInfo.h"
 
 using namespace llvm;
+
 
 namespace cs426 {
 /// Loop Invariant Code Motion Optimization Pass

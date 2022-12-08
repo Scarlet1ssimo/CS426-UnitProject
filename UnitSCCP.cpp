@@ -1,15 +1,21 @@
 // Usage: opt -load-pass-plugin=libUnitProject.so -passes="unit-sccp"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 #include "UnitSCCP.h"
 
-#define DEBUG_TYPE UnitSCCP
+#define DEBUG_TYPE "UnitSCCP"
 // Define any statistics here
 
 using namespace llvm;
 using namespace cs426;
+
+STATISTIC(IRemove, "Number of instructions removed");
+STATISTIC(Beach, "Number of basic blocks unreachable");
+STATISTIC(ISimp, "Number of instructions simplified");
 
 /// Main function for running the SCCP optimization
 PreservedAnalyses UnitSCCP::run(Function &F, FunctionAnalysisManager &FAM) {
@@ -57,10 +63,27 @@ PreservedAnalyses UnitSCCP::run(Function &F, FunctionAnalysisManager &FAM) {
                << "\n";
         BasicBlock::iterator ii(I);
         dbgs() << I << v.second.Val << "\n";
+        for (auto _ : I->users())
+          ISimp++;
+        IRemove++;
         ReplaceInstWithValue(I->getParent()->getInstList(), ii, v.second.Val);
       }
     }
   }
+  DenseSet<BasicBlock *> V;
+  FlowQ.push(&F.getEntryBlock());
+  while (!FlowQ.empty()) { // Executable
+    auto BB = FlowQ.front();
+    FlowQ.pop();
+    V.insert(BB);
+    if (FlowMark[BB] == false)
+      Beach++;
+    for (auto SBB : successors(BB)) {
+      if (!V.contains(SBB))
+        FlowQ.push(SBB);
+    }
+  }
+
   dbgs() << "\n\n";
   return PreservedAnalyses();
 }
@@ -96,12 +119,12 @@ void UnitSCCP::visitBranch(BranchInst *I) {
   for (auto i : choice) {
     auto SuccBB = I->getSuccessor(i);
     Edge E(I->getParent(), SuccBB);
-    ExecFlag[E] = true;
-    if (!FlowMark[SuccBB]) {
+    if (!FlowMark[SuccBB] || !ExecFlag[E]) {
       dbgs() << "visitBr: Mark edge " << edgeInfo(E) << " executable\n";
       // TODO: inq check?
       FlowQ.push(SuccBB);
     }
+    ExecFlag[E] = true;
   }
 }
 void UnitSCCP::visitInstruction(Instruction *I) {

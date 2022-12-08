@@ -34,12 +34,14 @@ CXXFLAGS = -g -std=c++11 -Wall -Wno-deprecated -Wno-unused -fpermissive -Wno-wri
 CXX = g++
 CC = clang
 UNIT_PORJECT = $(MPDIR)/build/libUnitProject.so
+CFILES    := $(wildcard $(MPDIR)/*.cpp)
+HFILES    := $(wildcard $(MPDIR)/*.h)
 
-$(UNIT_PORJECT) ::
+$(UNIT_PORJECT) : $(CFILES) $(HFILES)
 	make -C ../build
 project : $(UNIT_PORJECT)
 
-.PRECIOUS: %.ast %.opt.ll %.ref.ll %.ll %.exe %.0.ll
+.PRECIOUS: %.ast %.opt.ll %.ref.ll %.ll %.exe %.0.ll %-before.ll
 
 default: all
 
@@ -74,20 +76,18 @@ verify: $(SRCS:%.cl=%.verify)
 %.out: %.exe
 	./$< > $@ || true
 
+%.run: %.exe
+	./$+
+
 clean:
-	rm -f core *.exe *.bc *.opt.ll *.out *.ast *.s *.o *.verify *.ref.ll *.0.ll *.dot .*.dot
+	rm -f core *.exe *.bc *.opt.ll *.out *.ast *.s *.o *.verify *.ref.ll *.0.ll *.dot .*.dot *.stat *-licm.ll *-sccp.ll *.licm *.sccp
+	rm -f core *.exe *.bc unrunnable/*.opt.ll *.out *.ast *.s *.o *.verify unrunnable/*.ref.ll unrunnable/*.0.ll *.dot .*.dot unrunnable/*.stat
 	$(CLEAN_LOCAL)
 
 %.test: %.opt.ll %.ref.ll
 
 %.showref: %.ref.ll %.ll
 	diff $+ --color
-
-%.opt.ll: %.ll $(UNIT_PORJECT)
-	$(OPT) $(OPTFLAGS) $< -o $*.opt.ll | ./save $*.ll
-
-%.ref.ll: %.ll
-	$(OPT) $(OPTREFFLAGS) $< -o $*.ref.ll
 
 %.dot: %.ll
 	$(OPT) $*.ll -dot-dom -dot-cfg

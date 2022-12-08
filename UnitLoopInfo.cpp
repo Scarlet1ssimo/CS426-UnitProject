@@ -87,13 +87,24 @@ void UnitLoopInfo::addLoopInfo(BasicBlock *Header, BasicBlocks &BackEdges,
       }
     }
   }
+  for (auto L : CurLoop->Children) {
+    for (auto E : L->Exits) {
+      for (auto C : successors(E)) {
+        auto L = LoopMap[C];
+        // dbgs() << "?" << getSimpleNodeLabel(L->Header) << "\n";
+        if (!L || LoopNode::getFirstParent(L) != CurLoop) {
+          CurLoop->Exits.push_back(E);
+        }
+      }
+    }
+  }
   for (auto C : predecessors(Header)) {
     auto L = getLoopFor(C);
     if (!L || LoopNode::getFirstParent(L) != CurLoop) { // Enters
       CurLoop->Enters.push_back(C);
     }
   }
-
+  CurLoop->debug();
   // int cnt = 0;
   // BasicBlock *PreHeader = nullptr;
   // for (auto p : predecessors(Header)) {

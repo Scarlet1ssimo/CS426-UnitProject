@@ -1,4 +1,5 @@
 // Usage: opt -load-pass-plugin=libUnitProject.so -passes="unit-licm"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Dominators.h"
@@ -8,14 +9,19 @@
 #include <vector>
 
 #include "UnitLICM.h"
-#include "UnitLoopInfo.h"
 
-#define DEBUG_TYPE UnitLICM
+#define DEBUG_TYPE "UnitLICM"
+#define endl "\n"
 // Define any statistics here
 
 using namespace llvm;
 using namespace cs426;
 using namespace std;
+
+STATISTIC(HStore, "Number of memory locations promoted");
+STATISTIC(HLoad, "Number of load insts hoisted");
+STATISTIC(HInst, "Number of instructions hoisted");
+STATISTIC(HComp, "Number of computes hoisted");
 
 void getTraverseOrder(LoopNode *outmostLoop, vector<LoopNode *> &order) {
   for (auto L : outmostLoop->Children)
@@ -28,6 +34,24 @@ bool ifDominateAll(DominatorTree &DT, BasicBlock *use, BasicBlocks exits) {
       return false;
   }
   return true;
+}
+static void countStat(Instruction &I) {
+  HInst++;
+  if (I.isCast())
+    return;
+  if (I.getOpcode() == Instruction::GetElementPtr)
+    return;
+
+  switch (I.getOpcode()) {
+  case Instruction::Store:
+    HStore++;
+    break;
+  case Instruction::Load:
+    HLoad++;
+    break;
+  default:
+    HComp++;
+  }
 }
 static bool isForUnitProject(Instruction &I) {
   // [x] unary, binary, and bitwise operations
@@ -49,18 +73,24 @@ static bool isForUnitProject(Instruction &I) {
   }
   return false;
 }
-void getAllStore(LoopNode *L, vector<StoreInst *> &Stores) {
+bool getAllStore(LoopNode *L, vector<StoreInst *> &Stores) {
+  bool doAA = true;
   for (auto SL : L->Children)
-    getAllStore(SL, Stores);
+    doAA &= getAllStore(SL, Stores);
   for (auto B : L->BlockOfLoop) {
     for (auto &I : *B) {
       if (I.mayWriteToMemory()) {
         auto S = dyn_cast<StoreInst>(&I);
-        assert(S);
-        Stores.push_back(S);
+        // dbgs() << I << endl;
+        // assert(S);
+        if (S)
+          Stores.push_back(S);
+        else
+          doAA = false;
       }
     }
   }
+  return doAA;
 }
 
 /// Main function for running the LICM optimization
@@ -74,6 +104,15 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
 
   // Perform the optimization
   // Loops.debug();
+  int wrnm = 0;
+  auto MyAlias = [&](const Value *S, const Value *LL) {
+    // if((S==L)!=(AA.alias(S, LL) != AliasResult::NoAlias))
+    // return S == LL;
+    // dbgs() << AA.alias(S, LL) << endl;
+    // return AA.alias(S, LL) == AliasResult::PartialAlias ||
+    //  AA.alias(S, LL) == AliasResult::MustAlias;
+    return AA.alias(S, LL) != AliasResult::NoAlias;
+  };
   for (auto OL : Loops.OutmostLoops) {
     OL->debug("Outmost");
     vector<LoopNode *> SubLoops;
@@ -82,7 +121,8 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
     for (auto L : SubLoops) {
       // L->debug("Subloop");
       vector<StoreInst *> Stores;
-      getAllStore(L, Stores);
+      bool doAA = getAllStore(L, Stores) | true;
+      // bool doAA = false;
 
       for (bool NewMark = true; NewMark;) {
         NewMark = false;
@@ -97,17 +137,39 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
               auto LL = dyn_cast<LoadInst>(&I);
               if (LL && ![&] {
                     // is safe for hoist
+                    if (!doAA)
+                      return false;
                     for (auto S : Stores) {
-                      if (AA.alias(S->getPointerOperand(),
-                                   LL->getPointerOperand()) !=
-                          AliasResult::NoAlias) {
+                      if (MyAlias(S->getPointerOperand(),
+                                  LL->getPointerOperand())) {
                         dbgs() << "May Alias " << *S << " With" << *LL << "\n";
                         return false;
+                      } else {
+                        dbgs() << "No Alias " << *S << " With" << *LL << "\n";
                       }
                     }
                     return true;
                   }())
                 return 4;
+              auto SS = dyn_cast<StoreInst>(&I);
+              if (SS && ![&] {
+                    // is safe for hoist
+                    if (!doAA)
+                      return false;
+                    for (auto S : Stores) {
+                      if (S != SS)
+                        if (MyAlias(S->getPointerOperand(),
+                                    SS->getPointerOperand())) {
+                          dbgs()
+                              << "May Alias " << *S << " With" << *SS << "\n";
+                          return false;
+                        } else {
+                          dbgs() << "No Alias " << *S << " With" << *SS << "\n";
+                        }
+                    }
+                    return true;
+                  }())
+                return 5;
               if (ifDominateAll(DT, B, L->Exits))
                 return -1;
               // [x] isSafeToSpeculativelyExecute
@@ -126,10 +188,15 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
                   // Inst is def of operand U
                   auto InstBlock = Inst->getParent();
                   if (Loops.getLoopFor(InstBlock)->isInnerLoopOf(L))
-                    if (!IsInvariantBlock[Inst])
-                      isInvariant = false;
+                    if (!IsInvariantBlock[Inst]) {
+                      reason = 6;
+                      break;
+                    }
                 }
               }
+            }
+            if (reason <= 0) {
+              dbgs() << "True Invariant Reason " << reason << I << "\n";
             } else {
               dbgs() << "Not Invariant Reason " << reason << I << "\n";
               isInvariant = false;
@@ -144,12 +211,16 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
         };
 
         for (auto I : MovingInstr) {
+          // if (!I->isCast())
           if (auto PreHeader = L->getPreHeader()) {
-            auto InsertPtr = PreHeader->getTerminator();
-            dbgs() << "Invariant " << *I << " Move before " << *InsertPtr
-                   << "\n";
-            I->moveBefore(InsertPtr);
-            NewMark = true;
+            if (wrnm-- < 1) {
+              auto InsertPtr = PreHeader->getTerminator();
+              dbgs() << "Invariant " << *I << " Move before " << *InsertPtr
+                     << "\n";
+              countStat(*I);
+              I->moveBefore(InsertPtr);
+              NewMark = true;
+            }
           }
         }
       }
@@ -164,3 +235,5 @@ PreservedAnalyses UnitLICM::run(Function &F, FunctionAnalysisManager &FAM) {
 
   // return PreservedAnalyses::all();
 }
+
+#undef endl
